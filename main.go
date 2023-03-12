@@ -33,6 +33,7 @@ const (
 	waitlistMessage             = "You are currently on the wait list for this class"
 	unregisteredMessage         = "RSVP'ing for this class is still available"
 	unregisteredWaitlistMessage = "This class is currently full, but you can sign up to be on the wait list"
+	registerRetries             = 10
 )
 
 var (
@@ -282,6 +283,7 @@ func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest TaskRequest) (RSV
 	// cap this polling at 20 minute to reduce costs/memory etc
 	const pollTimeout = 20 * time.Minute
 	timeout := time.NewTimer(pollTimeout)
+	var registerAttempts int
 	for {
 		select {
 		case <-ctx.Done():
@@ -299,12 +301,23 @@ func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest TaskRequest) (RSV
 			}
 			// pretend rsvp
 			fmt.Println("polling done we are now in rsvp window, time to register")
+			var status RSVPStatus
 			//status, err := rsvp(c, rsvpRequest.CFACookie, rsvpRequest.Schedule)
 			//if err != nil {
 			//	return 0, fmt.Errorf("unable to rsvp: %w", err)
 			//}
-			//return status, nil
-			return 0, nil
+			switch status {
+			case RSVPED, WAITLISTED:
+				return status, nil
+			case UNREGISTERED, UNREGISTERED_WAITLIST:
+				registerAttempts++
+				if registerAttempts >= registerRetries {
+					return 0, fmt.Errorf("unable to register after %d attempts", registerAttempts)
+				}
+				continue
+			default:
+				return 0, fmt.Errorf("unexpected rsvp status: %d", status)
+			}
 		}
 	}
 }
