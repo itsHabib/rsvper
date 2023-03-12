@@ -117,10 +117,14 @@ func main() {
 	//	log.Fatalf("failed to run: %s", err)
 	//}
 
+	mockRun()
+}
+
+func mockRun() {
 	var mockRequests = []RequestedSchedule{
 		{
 			ClassName: "CrossFit Small Group Session",
-			StartTime: timePtr(time.Date(2023, 3, 11, 23, 33, 0, 0, time.Local)),
+			StartTime: timePtr(time.Date(2023, 3, 11, 23, 53, 0, 0, time.Local)),
 		},
 	}
 	var mockSchedule = []Schedule{
@@ -128,16 +132,12 @@ func main() {
 			ID:      15289564,
 			Coaches: "773522",
 			Title:   "CrossFit Small Group Session\nSomeone",
-			Start:   timePtr(time.Date(2023, 3, 11, 23, 33, 0, 0, time.Local)),
+			Start:   timePtr(time.Date(2023, 3, 11, 23, 53, 0, 0, time.Local)),
 			End:     timePtr(time.Date(2023, 3, 17, 21, 30, 0, 0, time.Local)),
 			URL:     "/schedule/15289564/",
 		},
 	}
-	mockRun(mockSchedule, mockRequests)
-}
-
-func mockRun(mockSchedule []Schedule, requests []RequestedSchedule) {
-	attemptRegister(&http.Client{}, CFACookie{}, mockSchedule, requests)
+	attemptRegister(&http.Client{}, CFACookie{}, mockSchedule, mockRequests)
 }
 
 func run() error {
