@@ -27,7 +27,7 @@ const (
 	endDateQueryName            = "end"
 	csrfTokenCookieName         = "csrftoken"
 	sessionIDCookieName         = "sessionid"
-	minimumRSVPTime             = time.Hour * 120
+	minimumRSVPTime             = time.Minute * 30
 	timeLayout                  = "2006-01-02T15:04"
 	rsvpedMessage               = "You are currently RSVP'd for this class"
 	waitlistMessage             = "You are currently on the wait list for this class"
@@ -112,6 +112,34 @@ type TaskRequest struct {
 }
 
 func main() {
+	//if err := run(); err != nil {
+	//	log.Fatalf("failed to run: %s", err)
+	//}
+
+	var mockRequests = []RequestedSchedule{
+		{
+			ClassName: "CrossFit Small Group Session",
+			StartTime: timePtr(time.Date(2023, 3, 11, 23, 33, 0, 0, time.Local)),
+		},
+	}
+	var mockSchedule = []Schedule{
+		{
+			ID:      15289564,
+			Coaches: "773522",
+			Title:   "CrossFit Small Group Session\nSomeone",
+			Start:   timePtr(time.Date(2023, 3, 11, 23, 33, 0, 0, time.Local)),
+			End:     timePtr(time.Date(2023, 3, 17, 21, 30, 0, 0, time.Local)),
+			URL:     "/schedule/15289564/",
+		},
+	}
+	mockRun(mockSchedule, mockRequests)
+}
+
+func mockRun(mockSchedule []Schedule, requests []RequestedSchedule) {
+	attemptRegister(&http.Client{}, CFACookie{}, mockSchedule, requests)
+}
+
+func run() error {
 	if err := readCreds(); err != nil {
 		log.Fatalf("failed to read creds: %s", err)
 	}
@@ -160,6 +188,8 @@ func main() {
 	fmt.Printf("SCHEDULE: %+v\n", len(schedules))
 
 	attemptRegister(c, *cfaCookie, schedules, requests)
+
+	return nil
 }
 
 func attemptRegister(c *http.Client, cookie CFACookie, schedule []Schedule, requests []RequestedSchedule) {
@@ -183,12 +213,12 @@ func attemptRegister(c *http.Client, cookie CFACookie, schedule []Schedule, requ
 				fmt.Printf("time until class: %s\n", timeUntilClass)
 				if timeUntilClass < minimumRSVPTime {
 					fmt.Println("CLASS IN RSVP WINDOW, RSVPING NOW")
-					status, err := rsvp(c, cookie, schedule[j])
-					if err != nil {
-						log.Fatalf("failed to rsvp: %s", err)
-					}
-					// send text message w/ status
-					fmt.Printf("RSVP STATUS: %s", status)
+					//status, err := rsvp(c, cookie, schedule[j])
+					//if err != nil {
+					//	log.Fatalf("failed to rsvp: %s", err)
+					//}
+					//// send text message w/ status
+					//fmt.Printf("RSVP STATUS: %s", status)
 
 				} else {
 					fmt.Println("CLASS NOT IN RSVP WINDOW, CREATING TASK")
@@ -263,7 +293,7 @@ func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest TaskRequest) (RSV
 			until := time.Until(*rsvpRequest.Schedule.Start)
 			if until >= minimumRSVPTime {
 				pollTime := calculatePollTime(until)
-				fmt.Printf("still not in rsvp window, sleeping for %s time, time until class: %s\n", pollTime, until)
+				fmt.Printf("still not in rsvp window, sleeping for %s time, time until class: %s, remaining: %s\n", pollTime, until, until-minimumRSVPTime)
 				time.Sleep(pollTime)
 				continue
 			}
@@ -280,25 +310,22 @@ func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest TaskRequest) (RSV
 }
 
 func calculatePollTime(untilClass time.Duration) time.Duration {
-	if untilClass >= time.Minute*5 {
+	remaining := untilClass - minimumRSVPTime
+	if remaining >= time.Minute*2 {
 		return pollOverFiveMinutes
-	} else if untilClass <= time.Minute*2 {
+	} else if remaining < time.Minute*2 && remaining >= time.Minute*1 {
 		return pollUnderTwoMinutes
-	} else if untilClass <= time.Minute*1 {
+	} else if remaining < time.Minute*1 && remaining >= time.Second*30 {
 		return pollUnderOneMinute
-	} else if untilClass <= time.Second*30 {
-		return pollUnderOneMinute
-	} else if untilClass <= time.Second*30 {
+	} else if remaining < time.Second*30 && remaining >= time.Second*10 {
 		return pollUnderThirtySeconds
-	} else if untilClass <= time.Second*10 {
+	} else if remaining < time.Second*10 && remaining >= time.Second*5 {
 		return pollUnderTenSeconds
-	} else if untilClass <= time.Second*5 {
+	} else if remaining < time.Second*5 {
 		return pollUnderFiveSeconds
-	} else if untilClass <= time.Second*1 {
-		return pollUnderOneSecond
 	}
 
-	return pollUnderOneSecond
+	return pollUnderFiveSeconds
 }
 
 func checkRSVP(c *http.Client, cookie CFACookie, schedule Schedule) (RSVPStatus, error) {
