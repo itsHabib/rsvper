@@ -314,6 +314,7 @@ func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest TaskRequest) (RSV
 				if registerAttempts >= registerRetries {
 					return 0, fmt.Errorf("unable to register after %d attempts", registerAttempts)
 				}
+				fmt.Println("failed to register, retrying shortly..")
 				continue
 			default:
 				return 0, fmt.Errorf("unexpected rsvp status: %d", status)
