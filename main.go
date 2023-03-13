@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/itsHabib/rsvper/internal/cfa"
+	scheduler2 "github.com/itsHabib/rsvper/internal/scheduler"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -47,77 +49,6 @@ var (
 	password string
 )
 
-type RSVPStatus int
-
-func (s RSVPStatus) String() string {
-	switch s {
-	case UNREGISTERED:
-		return "unregistered"
-	case UNREGISTERED_WAITLIST:
-		return "unregistered waitlist"
-	case RSVPED:
-		return "rsvped"
-	case WAITLISTED:
-		return "waitlisted"
-	default:
-		return "unknown"
-	}
-}
-
-const (
-	UNREGISTERED RSVPStatus = iota
-	UNREGISTERED_WAITLIST
-	RSVPED
-	WAITLISTED
-)
-
-type ScheduleParams struct {
-	Name      string
-	StartDate string
-	EndDate   string
-}
-
-/*
-{
-"id": 15289564,
-"coaches": "773522",
-"title": "CrossFit Small Group Session\nHannan E.",
-"start": "2023-02-13T05:30:00-06:39",
-"end": "2023-02-13T06:30:00-06:39",
-"color": "#51b2e7",
-"allDay": false,
-"backgroundColor": "#51b2e7",
-"className": "moreBorder",
-"url": "/schedule/15289564/"
-},
-*/
-
-type Schedule struct {
-	ID      int        `json:"id"`
-	Coaches string     `json:"coaches"`
-	Title   string     `json:"title"`
-	Start   *time.Time `json:"start"`
-	End     *time.Time `json:"end"`
-	URL     string     `json:"url"`
-}
-
-type RequestedSchedule struct {
-	ClassName    string
-	StartTime    *time.Time
-	JoinWaitlist bool
-}
-
-type CFACookie struct {
-	CSRFToken string
-	SessionID string
-}
-
-type TaskRequest struct {
-	Schedule     Schedule  `json:"schedule"`
-	CFACookie    CFACookie `json:"cfaCookie"`
-	JoinWaitlist bool      `json:"joinWaitlist"`
-}
-
 func main() {
 	//if err := run(); err != nil {
 	//	log.Fatalf("failed to run: %s", err)
@@ -127,13 +58,13 @@ func main() {
 }
 
 func mockRun() {
-	var mockRequests = []RequestedSchedule{
+	var mockRequests = []cfa.ScheduleRequest{
 		{
 			ClassName: "CrossFit Small Group Session",
 			StartTime: timePtr(time.Date(2023, 3, 12, 23, 10, 0, 0, time.Local)),
 		},
 	}
-	var mockSchedule = []Schedule{
+	var mockSchedule = []cfa.Schedule{
 		{
 			ID:      15289564,
 			Coaches: "773522",
@@ -143,7 +74,7 @@ func mockRun() {
 			URL:     "/schedule/15289564/",
 		},
 	}
-	attemptRegister(&http.Client{}, CFACookie{}, mockSchedule, mockRequests)
+	attemptRegister(&http.Client{}, cfa.Cookie{}, mockSchedule, mockRequests)
 }
 
 func run() error {
@@ -158,7 +89,7 @@ func run() error {
 		return http.ErrUseLastResponse
 	}
 
-	var requests = []RequestedSchedule{
+	var requests = []cfa.ScheduleRequest{
 		{
 			ClassName: "Range & Resilience",
 			StartTime: timePtr(time.Date(2023, 3, 18, 8, 00, 0, 0, time.Local)),
@@ -183,7 +114,7 @@ func run() error {
 	}
 	//	fmt.Printf("CFA COOKIE: %+v\n", cfaCookie)
 
-	scheduleParams := ScheduleParams{
+	scheduleParams := cfa.ScheduleParams{
 		Name:      inHouseSessionsQueryName,
 		StartDate: "2023-03-13",
 		EndDate:   "2023-03-17",
@@ -199,13 +130,13 @@ func run() error {
 	return nil
 }
 
-func attemptRegister(c *http.Client, cookie CFACookie, schedule []Schedule, requests []RequestedSchedule) {
-	// sort schedule and requests by time
+func attemptRegister(c *http.Client, cookie cfa.Cookie, schedules []cfa.Schedule, requests []cfa.ScheduleRequest) {
+	// sort schedules and requests by time
 	sort.Slice(requests, func(i, j int) bool {
 		return requests[i].StartTime.Before(*requests[j].StartTime)
 	})
-	sort.Slice(schedule, func(i, j int) bool {
-		return schedule[i].Start.Before(*schedule[j].Start)
+	sort.Slice(schedules, func(i, j int) bool {
+		return schedules[i].Start.Before(*schedules[j].Start)
 	})
 	sess, err := getAWSSession()
 	if err != nil {
@@ -214,17 +145,17 @@ func attemptRegister(c *http.Client, cookie CFACookie, schedule []Schedule, requ
 
 	for i := range requests {
 		fmt.Printf("request: %s, %s\n", requests[i].ClassName, requests[i].StartTime.Format(time.RFC3339))
-		for j := range schedule {
-			//	fmt.Printf("class schedule: %s, %s, %s\n", schedule[j].Title, schedule[j].Start, schedule[j].End)
-			if strings.Contains(schedule[j].Title, requests[i].ClassName) &&
-				equalTimes(*schedule[j].Start, *requests[i].StartTime) {
-				fmt.Printf("Found class: %s, %s, %s\n", schedule[j].Title, schedule[j].Start, schedule[j].End)
+		for j := range schedules {
+			//	fmt.Printf("class schedules: %s, %s, %s\n", schedules[j].Title, schedules[j].Start, schedules[j].End)
+			if strings.Contains(schedules[j].Title, requests[i].ClassName) &&
+				equalTimes(*schedules[j].Start, *requests[i].StartTime) {
+				fmt.Printf("Found class: %s, %s, %s\n", schedules[j].Title, schedules[j].Start, schedules[j].End)
 				// if we're already in the 5 day window, try to rsvp right away
 				timeUntilClass := time.Until(*requests[i].StartTime)
 				fmt.Printf("time until class: %s\n", timeUntilClass)
 				if timeUntilClass < minimumRSVPTime {
 					fmt.Println("CLASS IN RSVP WINDOW, RSVPING NOW")
-					//status, err := rsvp(c, cookie, schedule[j])
+					//status, err := rsvp(c, cookie, schedules[j])
 					//if err != nil {
 					//	log.Fatalf("failed to rsvp: %s", err)
 					//}
@@ -234,10 +165,9 @@ func attemptRegister(c *http.Client, cookie CFACookie, schedule []Schedule, requ
 				} else {
 					fmt.Println("CLASS NOT IN RSVP WINDOW, CREATING TASK")
 					// create task for later polling to rsvp
-					request := TaskRequest{
-						Schedule:     schedule[j],
-						CFACookie:    cookie,
-						JoinWaitlist: requests[i].JoinWaitlist,
+					request := scheduler2.TaskRequest{
+						Schedule:  schedules[j],
+						CFACookie: cookie,
 					}
 					arn, err := createScheduledEvents(sess, request)
 					if err != nil {
@@ -256,7 +186,7 @@ func attemptRegister(c *http.Client, cookie CFACookie, schedule []Schedule, requ
 	}
 }
 
-func rsvp(c *http.Client, cookie CFACookie, schedule Schedule) (RSVPStatus, error) {
+func rsvp(c *http.Client, cookie cfa.Cookie, schedule cfa.Schedule) (cfa.RSVPStatus, error) {
 	endpoint := baseEndpoint + schedule.URL + "register/"
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -294,7 +224,7 @@ const (
 	pollUnderOneSecond     = 250 * time.Millisecond
 )
 
-func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest TaskRequest) (RSVPStatus, error) {
+func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest scheduler2.TaskRequest) (cfa.RSVPStatus, error) {
 	// cap this polling at 20 minute to reduce costs/memory etc
 	const pollTimeout = 10 * time.Minute
 	timeout := time.NewTimer(pollTimeout)
@@ -316,15 +246,15 @@ func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest TaskRequest) (RSV
 			}
 			// pretend rsvp
 			fmt.Println("polling done we are now in rsvp window, time to register")
-			var status RSVPStatus
+			var status cfa.RSVPStatus
 			//status, err := rsvp(c, rsvpRequest.CFACookie, rsvpRequest.Schedule)
 			//if err != nil {
 			//	return 0, fmt.Errorf("unable to rsvp: %w", err)
 			//}
 			switch status {
-			case RSVPED, WAITLISTED:
+			case cfa.RSVPED, cfa.WAITLISTED:
 				return status, nil
-			case UNREGISTERED, UNREGISTERED_WAITLIST:
+			case cfa.UNREGISTERED, cfa.UNREGISTERED_WAITLIST:
 				registerAttempts++
 				if registerAttempts >= registerRetries {
 					return 0, fmt.Errorf("unable to register after %d attempts", registerAttempts)
@@ -359,8 +289,8 @@ func calculatePollTime(untilClass time.Duration) time.Duration {
 	return pollUnderFiveSeconds
 }
 
-func checkRSVP(c *http.Client, cookie CFACookie, schedule Schedule) (RSVPStatus, error) {
-	endpoint := baseEndpoint + schedule.URL
+func checkRSVP(c *http.Client, cookie cfa.Cookie, sched cfa.Schedule) (cfa.RSVPStatus, error) {
+	endpoint := baseEndpoint + sched.URL
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return 0, fmt.Errorf("unable to generate new request: %w", err)
@@ -386,20 +316,20 @@ func checkRSVP(c *http.Client, cookie CFACookie, schedule Schedule) (RSVPStatus,
 
 	bodyStr := string(body)
 	if strings.Contains(bodyStr, unregisteredMessage) {
-		return UNREGISTERED, nil
+		return cfa.UNREGISTERED, nil
 	} else if strings.Contains(bodyStr, unregisteredWaitlistMessage) {
-		return UNREGISTERED_WAITLIST, nil
+		return cfa.UNREGISTERED_WAITLIST, nil
 	} else if strings.Contains(bodyStr, rsvpedMessage) {
-		return RSVPED, nil
+		return cfa.RSVPED, nil
 	} else if strings.Contains(bodyStr, waitlistMessage) {
-		return WAITLISTED, nil
+		return cfa.WAITLISTED, nil
 
 	}
 
 	return -1, nil
 }
 
-func login(c *http.Client) (*CFACookie, error) {
+func login(c *http.Client) (*cfa.Cookie, error) {
 	values := make(url.Values)
 	values.Add("username", username)
 	values.Add("password", password)
@@ -424,14 +354,14 @@ func login(c *http.Client) (*CFACookie, error) {
 		return nil, fmt.Errorf("unable to get cookie from login request")
 	}
 
-	var cookie CFACookie
+	var cookie cfa.Cookie
 	cookie.CSRFToken = extractCookie(cookies[0])
 	cookie.SessionID = extractCookie(cookies[1])
 
 	return &cookie, nil
 }
 
-func getSchedule(c *http.Client, cookie CFACookie, params ScheduleParams) ([]Schedule, error) {
+func getSchedule(c *http.Client, cookie cfa.Cookie, params cfa.ScheduleParams) ([]cfa.Schedule, error) {
 	values := make(url.Values)
 	values.Add(inHouseSessionsQueryName, params.Name)
 	values.Add(startDateQueryName, params.StartDate)
@@ -453,7 +383,7 @@ func getSchedule(c *http.Client, cookie CFACookie, params ScheduleParams) ([]Sch
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var schedules []Schedule
+	var schedules []cfa.Schedule
 	if err := json.NewDecoder(resp.Body).Decode(&schedules); err != nil {
 		return nil, fmt.Errorf("unable to decode schedule response: %w", err)
 	}
@@ -514,7 +444,7 @@ func readCreds() error {
 	return nil
 }
 
-func createScheduledEvents(sess *session.Session, task TaskRequest) (string, error) {
+func createScheduledEvents(sess *session.Session, task scheduler2.TaskRequest) (string, error) {
 	input, err := json.Marshal(task)
 	if err != nil {
 		return "", fmt.Errorf("unable to marshal task request: %w", err)
@@ -569,7 +499,7 @@ func formScheduleExpression(start time.Time) string {
 	)
 }
 
-func formScheduledEventDescription(schedule Schedule) string {
+func formScheduledEventDescription(schedule cfa.Schedule) string {
 	return fmt.Sprintf("Scheduled trigger for class %s at %s", schedule.Title, schedule.Start)
 }
 func formScheduledEventName(start time.Time) string {
