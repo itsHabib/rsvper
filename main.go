@@ -13,6 +13,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/scheduler"
 )
 
 const (
@@ -34,6 +38,8 @@ const (
 	unregisteredMessage         = "RSVP'ing for this class is still available"
 	unregisteredWaitlistMessage = "This class is currently full, but you can sign up to be on the wait list"
 	registerRetries             = 10
+	awsRegion                   = "us-east-2"
+	chicagoTZ                   = "America/Chicago"
 )
 
 var (
@@ -124,7 +130,7 @@ func mockRun() {
 	var mockRequests = []RequestedSchedule{
 		{
 			ClassName: "CrossFit Small Group Session",
-			StartTime: timePtr(time.Date(2023, 3, 11, 23, 53, 0, 0, time.Local)),
+			StartTime: timePtr(time.Date(2023, 3, 12, 23, 10, 0, 0, time.Local)),
 		},
 	}
 	var mockSchedule = []Schedule{
@@ -132,7 +138,7 @@ func mockRun() {
 			ID:      15289564,
 			Coaches: "773522",
 			Title:   "CrossFit Small Group Session\nSomeone",
-			Start:   timePtr(time.Date(2023, 3, 11, 23, 53, 0, 0, time.Local)),
+			Start:   timePtr(time.Date(2023, 3, 12, 23, 10, 0, 0, time.Local)),
 			End:     timePtr(time.Date(2023, 3, 17, 21, 30, 0, 0, time.Local)),
 			URL:     "/schedule/15289564/",
 		},
@@ -201,6 +207,10 @@ func attemptRegister(c *http.Client, cookie CFACookie, schedule []Schedule, requ
 	sort.Slice(schedule, func(i, j int) bool {
 		return schedule[i].Start.Before(*schedule[j].Start)
 	})
+	sess, err := getAWSSession()
+	if err != nil {
+		log.Fatalf("failed to get aws session: %s", err)
+	}
 
 	for i := range requests {
 		fmt.Printf("request: %s, %s\n", requests[i].ClassName, requests[i].StartTime.Format(time.RFC3339))
@@ -229,12 +239,17 @@ func attemptRegister(c *http.Client, cookie CFACookie, schedule []Schedule, requ
 						CFACookie:    cookie,
 						JoinWaitlist: requests[i].JoinWaitlist,
 					}
-					status, err := pollRSVP(context.Background(), c, request)
+					arn, err := createScheduledEvents(sess, request)
 					if err != nil {
-						log.Fatalf("failed to rsvp: %s", err)
+						log.Fatalf("failed to create scheduled events: %s", err)
 					}
-					// send text message w/ status
-					fmt.Printf("RSVP STATUS: %s", status)
+					fmt.Printf("ARN OF SCHEDULED EVENT: %s", arn)
+					//status, err := pollRSVP(context.Background(), c, request)
+					//if err != nil {
+					//	log.Fatalf("failed to rsvp: %s", err)
+					//}
+					//// send text message w/ status
+					//fmt.Printf("RSVP STATUS: %s", status)
 				}
 			}
 		}
@@ -281,7 +296,7 @@ const (
 
 func pollRSVP(ctx context.Context, c *http.Client, rsvpRequest TaskRequest) (RSVPStatus, error) {
 	// cap this polling at 20 minute to reduce costs/memory etc
-	const pollTimeout = 20 * time.Minute
+	const pollTimeout = 10 * time.Minute
 	timeout := time.NewTimer(pollTimeout)
 	var registerAttempts int
 	for {
@@ -335,8 +350,10 @@ func calculatePollTime(untilClass time.Duration) time.Duration {
 		return pollUnderThirtySeconds
 	} else if remaining < time.Second*10 && remaining >= time.Second*5 {
 		return pollUnderTenSeconds
-	} else if remaining < time.Second*5 {
+	} else if remaining < time.Second*5 && remaining >= time.Second*1 {
 		return pollUnderFiveSeconds
+	} else if remaining < time.Second*1 {
+		return pollUnderOneSecond
 	}
 
 	return pollUnderFiveSeconds
@@ -495,4 +512,84 @@ func readCreds() error {
 	}
 
 	return nil
+}
+
+func createScheduledEvents(sess *session.Session, task TaskRequest) (string, error) {
+	input, err := json.Marshal(task)
+	if err != nil {
+		return "", fmt.Errorf("unable to marshal task request: %w", err)
+	}
+
+	s := scheduler.New(sess)
+
+	// create scheduled event for class, time will be set to 5 minutes before
+	// the RSVP window opens. assuming the class is outside the RSVP window
+	// TODO: make sure start time of class is outside of the RSVP window
+	// yyyy-mm-ddThh:mm:ss
+	start := task.Schedule.Start.Add(-1 * (minimumRSVPTime + 5*time.Minute))
+	event := scheduler.CreateScheduleInput{
+		Description:                aws.String(formScheduledEventDescription(task.Schedule)),
+		Name:                       aws.String(formScheduledEventName(start)),
+		ScheduleExpression:         aws.String(formScheduleExpression(start)),
+		ScheduleExpressionTimezone: aws.String(chicagoTZ),
+		FlexibleTimeWindow: &scheduler.FlexibleTimeWindow{
+			Mode: aws.String(scheduler.FlexibleTimeWindowModeOff),
+		},
+		Target: &scheduler.Target{
+			Arn:     aws.String("arn:aws:lambda:us-east-2:273568070039:function:Tester"),
+			RoleArn: aws.String("arn:aws:iam::273568070039:role/service-role/Amazon_EventBridge_Scheduler_LAMBDA_9d397e263b"),
+			Input:   aws.String(string(input)),
+			RetryPolicy: &scheduler.RetryPolicy{
+				MaximumRetryAttempts: aws.Int64(0),
+			},
+		},
+	}
+
+	resp, err := s.CreateSchedule(&event)
+	if err != nil {
+		return "", fmt.Errorf("unable to create scheduled event: %w", err)
+	}
+
+	return *resp.ScheduleArn, nil
+}
+
+func formScheduleExpression(start time.Time) string {
+	// we want to set the start to five minutes before the rsvp window begins.
+	// to do this we get the start time of the class, subtract the rsvp window
+	// and 7 additional minutes. AWS expects the expression to look like:
+	// yyyy-mm-ddThh:mm:ss
+
+	return fmt.Sprintf(
+		"at(%d-%02d-%02dT%02d:%02d:00)",
+		start.Year(),
+		start.Month(),
+		start.Day(),
+		start.Hour(),
+		start.Minute(),
+	)
+}
+
+func formScheduledEventDescription(schedule Schedule) string {
+	return fmt.Sprintf("Scheduled trigger for class %s at %s", schedule.Title, schedule.Start)
+}
+func formScheduledEventName(start time.Time) string {
+	return fmt.Sprintf(
+		"Schedule.%s.%02d-%02dT%02d.%02d",
+		start.Weekday().String(),
+		start.Month(),
+		start.Day(),
+		start.Hour(),
+		start.Minute(),
+	)
+}
+
+func getAWSSession() (*session.Session, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(awsRegion),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to create new session: %w", err)
+	}
+
+	return sess, nil
 }
