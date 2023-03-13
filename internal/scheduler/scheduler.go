@@ -39,9 +39,7 @@ func NewService(sess *session.Session) (*Service, error) {
 
 func (s *Service) ProcessRequests(cookie cfa.Cookie, schedules []cfa.Schedule, requests []cfa.ScheduleRequest) error {
 	// sort schedules and requests by time
-	sort.Slice(requests, func(i, j int) bool {
-		return requests[i].StartTime.Before(*requests[j].StartTime)
-	})
+
 	sort.Slice(schedules, func(i, j int) bool {
 		return schedules[i].Start.Before(*schedules[j].Start)
 	})
@@ -52,13 +50,13 @@ func (s *Service) ProcessRequests(cookie cfa.Cookie, schedules []cfa.Schedule, r
 			//	fmt.Printf("class schedules: %s, %s, %s\n", schedules[j].Title, schedules[j].Start, schedules[j].End)
 			if strings.Contains(schedules[j].Title, requests[i].ClassName) &&
 				equalTimes(*schedules[j].Start, *requests[i].StartTime) {
-				fmt.Printf("Found class: %s, %s, %s\n", schedules[j].Title, schedules[j].Start, schedules[j].End)
+				fmt.Printf("Found class: %s, %s\n", strings.Replace(schedules[j].Title, "\n", " ", 1), schedules[j].Start)
 				timeUntilClass := time.Until(*requests[i].StartTime)
 				fmt.Printf("time until class: %s\n", timeUntilClass)
 
 				var start time.Time
 				if timeUntilClass < cfa.MinimumRSVPTime {
-					start = time.Now().Add(10 * time.Minute)
+					start = time.Now().Add(5 * time.Minute)
 				} else {
 					start = schedules[j].Start.Add(-1 * (cfa.MinimumRSVPTime + 5*time.Minute))
 				}

@@ -16,6 +16,9 @@ func HandleLambdaEvent(ctx context.Context, event scheduler.TaskRequest) (string
 	c := &http.Client{
 		Timeout: 10 * time.Second,
 	}
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	s, err := cfa.NewService(c)
 	if err != nil {
 		return "", fmt.Errorf("unable to create cfa service: %w", err)

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -18,8 +19,8 @@ import (
 
 const (
 	awsRegion       = "us-east-2"
-	requestFilePath = "request.json"
-	credsFilePath   = "creds.txt"
+	requestFilePath = "cmd/scheduler/requests.json"
+	credsFilePath   = "cmd/scheduler/creds.txt"
 )
 
 var (
@@ -30,6 +31,9 @@ var (
 func main() {
 	c := &http.Client{
 		Timeout: 10 * time.Second,
+	}
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
 	cfaService, err := cfa.NewService(c)
 	if err != nil {
@@ -49,7 +53,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("unable to open requests file: %v", err)
 	}
-	// assume requests are sorted in desc order from start time
 	var requests []cfa.ScheduleRequest
 	if err := json.NewDecoder(requestsFile).Decode(&requests); err != nil {
 		log.Fatalf("unable to decode requests file: %v", err)
@@ -59,6 +62,9 @@ func main() {
 		return
 	}
 	fmt.Printf("loaded %d requests\n", len(requests))
+	sort.Slice(requests, func(i, j int) bool {
+		return requests[i].StartTime.Before(*requests[j].StartTime)
+	})
 
 	// login to set cookie
 	if err := readCreds(); err != nil {

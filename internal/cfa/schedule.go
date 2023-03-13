@@ -44,6 +44,6 @@ type Schedule struct {
 }
 
 type ScheduleRequest struct {
-	ClassName string
-	StartTime *time.Time
+	ClassName string     `json:"className"`
+	StartTime *time.Time `json:"startTime"`
 }
