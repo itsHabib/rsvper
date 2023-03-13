@@ -56,7 +56,7 @@ func (s *Service) ProcessRequests(cookie cfa.Cookie, schedules []cfa.Schedule, r
 
 				var start time.Time
 				if timeUntilClass < cfa.MinimumRSVPTime {
-					start = time.Now().Add(5 * time.Minute)
+					start = time.Now().Add(3 * time.Minute)
 				} else {
 					start = schedules[j].Start.Add(-1 * (cfa.MinimumRSVPTime + 5*time.Minute))
 				}

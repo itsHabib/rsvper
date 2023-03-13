@@ -13,6 +13,7 @@ import (
 )
 
 func HandleLambdaEvent(ctx context.Context, event scheduler.TaskRequest) (string, error) {
+	fmt.Printf("received event: %+v\n", event)
 	c := &http.Client{
 		Timeout: 10 * time.Second,
 	}

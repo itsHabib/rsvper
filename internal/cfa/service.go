@@ -119,6 +119,7 @@ func (s *Service) RSVP(schedule Schedule) (RSVPStatus, error) {
 	if resp.StatusCode != http.StatusFound {
 		return 0, fmt.Errorf("unexpected response code: %d", resp.StatusCode)
 	}
+	fmt.Println("submitted rsvp request successfully, checking rsvp..")
 
 	// make sure we rsvped for the class
 	status, err := s.CheckRSVP(schedule)
@@ -126,7 +127,7 @@ func (s *Service) RSVP(schedule Schedule) (RSVPStatus, error) {
 		return 0, fmt.Errorf("unable to check rsvp: %w", err)
 	}
 
-	fmt.Printf("RSVP status: %d\n", status)
+	fmt.Printf("RSVP status code: %d: %s\n", status, status.String())
 
 	return status, nil
 }
@@ -148,7 +149,6 @@ func (s *Service) CheckRSVP(sched Schedule) (RSVPStatus, error) {
 		return 0, fmt.Errorf("unexpected response code: %d", resp.StatusCode)
 	}
 	// make sure we rsvped for the class
-	fmt.Printf("RSVP RESPONSE CODE: %d\n", resp.StatusCode)
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return 0, fmt.Errorf("unable to read response body: %w", err)
@@ -164,7 +164,6 @@ func (s *Service) CheckRSVP(sched Schedule) (RSVPStatus, error) {
 		return RSVPED, nil
 	} else if strings.Contains(bodyStr, waitlistMessage) {
 		return WAITLISTED, nil
-
 	}
 
 	return -1, nil
