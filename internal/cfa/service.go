@@ -109,6 +109,7 @@ func (s *Service) PollRSVP(ctx context.Context, sched Schedule) (RSVPStatus, err
 
 func (s *Service) RSVP(schedule Schedule) (RSVPStatus, error) {
 	endpoint := baseEndpoint + schedule.URL + registerPath + "/"
+	fmt.Printf("submitting rsvp request to: %s\n", endpoint)
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return 0, fmt.Errorf("unable to generate new request: %w", err)
@@ -152,6 +153,7 @@ func (s *Service) CheckRSVP(sched Schedule) (RSVPStatus, error) {
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("unexpected response code: %d", resp.StatusCode)
 	}
+
 	// make sure we rsvped for the class
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
