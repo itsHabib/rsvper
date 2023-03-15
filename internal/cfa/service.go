@@ -94,10 +94,14 @@ func (s *Service) PollRSVP(ctx context.Context, sched Schedule) (RSVPStatus, err
 				if registerAttempts >= registerRetries {
 					return 0, fmt.Errorf("unable to register after %d attempts", registerAttempts)
 				}
-				fmt.Println("failed to register, retrying shortly..")
+				fmt.Printf("failed to register, retrying shortly, attempts: %d\n", registerAttempts)
 				continue
 			default:
-				return 0, fmt.Errorf("unexpected rsvp status: %d", status)
+				registerAttempts++
+				fmt.Printf("failed to register, retrying shortly, attempts: %d\n", registerAttempts)
+				if registerAttempts >= registerRetries {
+					return 0, fmt.Errorf("unable to register after %d attempts", registerAttempts)
+				}
 			}
 		}
 	}
@@ -153,9 +157,10 @@ func (s *Service) CheckRSVP(sched Schedule) (RSVPStatus, error) {
 	if err != nil {
 		return 0, fmt.Errorf("unable to read response body: %w", err)
 	}
+	bodyStr := string(body)
+	fmt.Printf("Class page body: %s\n", string(body))
 	resp.Body.Close()
 
-	bodyStr := string(body)
 	if strings.Contains(bodyStr, unregisteredMessage) {
 		return UNREGISTERED, nil
 	} else if strings.Contains(bodyStr, unregisteredWaitlistMessage) {
