@@ -98,10 +98,11 @@ func (s *Service) PollRSVP(ctx context.Context, sched Schedule) (RSVPStatus, err
 				continue
 			default:
 				registerAttempts++
-				fmt.Printf("failed to register, retrying shortly, attempts: %d\n", registerAttempts)
 				if registerAttempts >= registerRetries {
 					return 0, fmt.Errorf("unable to register after %d attempts", registerAttempts)
 				}
+				fmt.Printf("failed to register, retrying shortly, attempts: %d\n", registerAttempts)
+				continue
 			}
 		}
 	}
