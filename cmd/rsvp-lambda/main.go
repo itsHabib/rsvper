@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -43,7 +44,8 @@ func HandleLambdaEvent(ctx context.Context, event scheduler.TaskRequest) (string
 	}
 
 	fmt.Printf("rsvp status: %s\n", status.String())
-	params.SetBody("successfully submitted rsvp request, with rsvp status: " + status.String())
+	text := fmt.Sprintf("successfully submitted rsvp request for class: %s, with rsvp status: %s", strings.Replace(event.Schedule.Title, "\n", " ", 1), status.String())
+	params.SetBody(text)
 	if _, smsErr := twilioClient.Api.CreateMessage(params); smsErr != nil {
 		fmt.Printf("unable to send sms: %s", err)
 	}
