@@ -1,2 +1,2 @@
 # rsvper
-crossfit austin triib rsvp app. uses a scheduled lambda function to poll for rsvp when class registration opens
+crossfit austin triib rsvp app. uses a scheduled lambda function to attempt to RSVP when class registration opens
